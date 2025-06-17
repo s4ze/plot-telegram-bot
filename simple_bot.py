@@ -7,8 +7,12 @@ from telegram.ext import (
     # CommandHandler,
     # MessageHandler,
     filters,
+    ContextTypes,
 )
-from operations import clean_text, fix_spelling, sentiment_dict_load_and_parse
+from operations import (
+    clean_text,
+    sentiment_dict_load_and_parse,
+)
 
 from natasha import (
     MorphVocab,
@@ -24,12 +28,33 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from train_intents import models_dir, vectorizer_file_name, classifier_file_name
 import traceback
+import logging
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from spellchecker import SpellChecker  # pip install pyspellchecker
+from data.intents import intents
 
-try:
-    vectorizer = load(path.join(models_dir, vectorizer_file_name))
-    classifier = load(path.join(models_dir, classifier_file_name))
-except FileNotFoundError as e:
-    print(f"Не найден файл модели {e}\n{traceback.format_exc()}")
+
+def clean_stop_words(text: str) -> str:
+    "Удаление стоп-слов (лишних слов)"
+
+    # Разбиение текста на слова
+    words = word_tokenize(text, language="russian")
+    filtered_text = [word for word in words if word not in stop_words]
+    return " ".join(filtered_text)
+
+
+def fix_spelling(text: str) -> str:
+    "Коррекция слов с опечатками"
+
+    words = text.split()
+
+    corrected = []
+    for word in words:
+        # Обработка слова на опечатки
+        corrected_word = spell.correction(word) or word
+        corrected.append(corrected_word)
+    return " ".join(corrected)
 
 
 def lemmatize_text(text: str) -> str:
@@ -98,6 +123,57 @@ def classify_intent(text: str):
     return classifier.predict(vec)[0]
 
 
+def generate_response(intent: str, entities: dict, sentiment: str) -> str:
+    "Генерация ответа на основе намерения"
+    # Пробуем найти русский эквивалент намерения
+    translated_intent = None
+    for eng_intent, ru_intent in intent_translation.items():
+        if ru_intent == intent:
+            translated_intent = eng_intent
+            break
+
+    # Если нашли перевод - используем его, иначе оригинальное намерение
+    target_intent = translated_intent if translated_intent else intent
+
+    # Получаем возможные ответы для этого намерения
+    possible_responses = intents.get(target_intent, None)
+
+    if possible_responses:
+        # Выбираем случайный ответ из доступных
+        from random import choice
+
+        return choice(possible_responses)
+    else:
+        # Стандартный ответ, если намерение не распознано
+        return (
+            f"Я понял ваш запрос как '{intent}'. "
+            f"Тональность: {sentiment}. Сущности: {entities}"
+        )
+
+
+# ===================
+# ===================
+
+# Добавление и настройка логгера
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Добавление модели для проверки орфографии
+spell = SpellChecker(language="ru")
+
+# Загрузка модели классификатора намерений
+
+try:
+    vectorizer = load(path.join(models_dir, vectorizer_file_name))
+    classifier = load(path.join(models_dir, classifier_file_name))
+except FileNotFoundError as e:
+    logger.error(f"Не найден файл модели {e}\n{traceback.format_exc()}")
+    raise
+
+# Загрузка инструментов для лексиммизации и извлечения сущностей (NER)
+
 morph_vocab = MorphVocab()
 emb = NewsEmbedding()
 
@@ -106,8 +182,48 @@ morph_tagger = NewsMorphTagger(emb)
 
 ner_tagger = NewsNERTagger(emb)
 
+# Загрузка базы стоп-слов в русском языке
+stop_words = set(stopwords.words("russian"))
+
 # Загрузка словаря тональности
 sentiment_dict = sentiment_dict_load_and_parse("./data/sentiment_dict.txt")
+
+# ===================
+# ===================
+
+
+# Обработчик команды /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message:
+        await update.message.reply_text("Привет! Я ваш чат-бот. Задайте вопрос.")
+
+
+# Обработчик текстовых сообщений
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message:
+        try:
+            text = update.message.text  # Текст от пользователя
+            logger.info(f"Пользователь написал: {text}")
+
+            if text:
+                # Обработка текста
+                text = clean_stop_words(fix_spelling(clean_text(text)))
+                lemmas = lemmatize_text(text)
+
+                # Анализ
+                intent = classify_intent(lemmas)
+                entities = extract_entities(lemmas)
+                sentiment = analyze_sentiment(lemmas)
+
+                # Генерация ответа с учётом сущностей и тональности
+                response = generate_response(intent, entities, sentiment)
+
+                await update.message.reply_text(response)
+        except Exception as e:
+            logger.error(f"Ошибка обработки сообщения {e}\n{traceback.format_exc()}")
+            await update.message.reply_text(
+                "Произошла ошибка при обработке вашего сообщения"
+            )
 
 
 def run_bot():

@@ -1,7 +1,4 @@
 from re import sub as re_sub, findall as re_findall
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from spellchecker import SpellChecker  # pip install pyspellchecker
 
 
 # def process_user_input(text):
@@ -29,31 +26,6 @@ def clean_text(text: str) -> str:
     return text
 
 
-def fix_spelling(text: str) -> str:
-    "Коррекция слов с опечатками"
-
-    spell = SpellChecker(language="ru")
-    words = text.split()
-
-    corrected = []
-    for word in words:
-        # Обработка слова на опечатки
-        corrected_word = spell.correction(word) or word
-        corrected.append(corrected_word)
-    return " ".join(corrected)
-
-
-def clean_stop_words(text: str) -> str:
-    "Удаление стоп-слов (лишних слов)"
-    # Загрузка базы стоп-слов в русском языке
-    stop_words = set(stopwords.words("russian"))
-
-    # Разбиение текста на слова
-    words = word_tokenize(text, language="russian")
-    filtered_text = [word for word in words if word not in stop_words]
-    return " ".join(filtered_text)
-
-
 def extract_price(text: str) -> int | None:
     "Извлечение числовой цены"
     prices = map(int, re_findall(r"(\d+)\s*(тыс|к|руб|р)?", text.lower()))
@@ -78,13 +50,3 @@ text = "Привт я изз москыв довай купимм зимлю р�
 print(f"Исходный: {text}")
 text = clean_text(text)
 print(f"Очищенный от лишних символов: {text}")
-text = fix_spelling(text)
-print(f"Исправленный от опечаток: {text}")
-text = clean_stop_words(text)
-print(f"Очищенный от стоп-слов: {text}")
-text = lemmatize_text(text)
-print(f"Лемматизированный: {text}")
-entities = extract_entities(text)
-print(f"Извлеченные сущности: {entities}")
-sentiment = analyze_sentiment(text)
-print(f"Оценка тональности: {sentiment}")
