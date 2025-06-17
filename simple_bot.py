@@ -37,8 +37,12 @@ from nltk.tokenize import word_tokenize
 from spellchecker import SpellChecker  # pip install pyspellchecker
 from data.intents import intents
 from data.land_plots import land_plots
-from random import choice
+from data.advertisements import advertisements
+from random import choice, random
 from collections import deque
+from io import BytesIO
+from gtts import gTTS
+import speech_recognition as sr
 
 
 def clean_stop_words(text: str) -> str:
@@ -189,44 +193,51 @@ def format_land_info(plot: dict) -> str:
 def generate_response(
     intent: str, entities: dict, sentiment: str, user_text: str
 ) -> str:
-    # Извлечение тегов из запроса
-    tags = extract_tags(user_text)  # Новая функция
-
     # Обработка поискового запроса
-    if any(["поиск", "искать", "предложение", "сравнить"]) in entities:
-        found_plots = search_plots(entities, tags)
+    if intent in ["поиск", "искать", "предложение", "сравнить", "фильтр", "фильтрация"]:
+        found_plots = search_plots(entities, extract_tags(user_text))
 
-        if not found_plots:
-            response = "По вашему запросу участков не найдено. Попробуйте изменить параметры поиска."
-        else:
+        if found_plots:
             # Форматируем первые 3 результата
             plots_list = "\n".join([format_short_plot_info(p) for p in found_plots[:3]])
             response = f"🔍 Найдено участков: {len(found_plots)}\n\n{plots_list}\n"
             response += "Для детальной информации укажите ID участка (например: 'Покажи участок 7')"
+        else:
+            response = "По вашему запросу участков не найдено. Попробуйте изменить параметры поиска."
 
         return adapt_to_sentiment(response, sentiment)
 
     # Обработка запроса деталей участка
-    if intent == "plot_details" or "участок" in user_text.lower():
-        plot_ids = [int(word) for word in user_text.split() if word.isdigit()]
-        if plot_ids:
-            plot_id = plot_ids[0]
-            plot = next((p for p in land_plots if p["id"] == plot_id), None)
-            if plot:
-                return format_land_info(plot)
-            return "Участок с таким ID не найден. Проверьте номер."
+    elif intent == "информация":
+        land_ids = [int(word) for word in user_text.split() if word.isdigit()]
+        if land_ids:
+            land_id = land_ids[0]
+            land = next((p for p in land_plots if p["id"] == land_id), None)
+            if land:
+                return format_land_info(land)
+        return "Участок с таким ID не найден. Проверьте номер."
 
-    # 1. Выбираем базовый ответ по намерению
-    if intent in intents:
-        response = choice(intents[intent])
     else:
-        response = choice(intents["default"])
+        # Выбор ответа из готовых намерений
+        if intent in intents:
+            response = choice(intents[intent])
+        else:
+            response = choice(intents["неизвестно"])
 
-    # 2. Персонализация с использованием сущностей
-    personalized_response = personalize_response(response, entities)
+        # Персонализация с использованием сущностей
+        response = personalize_response(response, entities)
 
-    # 3. Адаптация под тональность
-    return adapt_to_sentiment(personalized_response, sentiment)
+        # Адаптация под тональность
+        response = adapt_to_sentiment(response, sentiment)
+
+        # Добавление рекламы с 20% вероятностью
+        if random() < 0.2:
+            random_land = choice(land_plots)
+            ad_text = choice(advertisements)
+            land_info = format_short_plot_info(random_land)
+            response += f"\n\n{ad_text}\n{land_info}"
+
+        return response
 
 
 def personalize_response(response: str, entities: dict) -> str:
@@ -258,7 +269,7 @@ def personalize_response(response: str, entities: dict) -> str:
 
 
 def adapt_to_sentiment(response: str, sentiment: str) -> str:
-    """Адаптирует ответ под тональность сообщения"""
+    "Адаптирует ответ под тональность сообщения"
     if sentiment == "negative":
         return "Понимаем ваши сомнения. " + response + " Можем что-то уточнить?"
     elif sentiment == "positive":
@@ -315,7 +326,6 @@ stop_words = set(stopwords.words("russian"))
 sentiment_dict = sentiment_dict_load_and_parse("./data/sentiment_dict.txt")
 
 # Создание переменной контекста чатов
-
 chat_contexts = {}
 
 # ===================
@@ -336,14 +346,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.effective_chat:
         try:
-            text = update.message.text  # Текст от пользователя
+            is_voice = False
+
+            # Обработка голосового сообщения
+            if update.message.voice:
+                is_voice = True
+                voice_file = await update.message.voice.get_file()
+                # Скачиваем и распознаем голос
+                with BytesIO() as voice_io:
+                    await voice_file.download_to_memory(out=voice_io)
+                    voice_io.seek(0)
+                    r = sr.Recognizer()
+                    with sr.AudioFile(voice_io) as source:
+                        audio = r.record(source)
+                text = str(r.recognize_google(audio, language="ru-RU"))
+            else:
+                text = update.message.text  # Текст от пользователя
+
             chat_id = update.effective_chat.id  # ID чата с этим пользователем
+            logger.info(f"Пользователь написал: {text}")
 
-            if text and chat_id:
-                logger.info(f"Пользователь написал: {text}")
+            original_text = text
 
-                original_text = text
-
+            if text and original_text:
                 # Получаем контекст диалога
                 text = get_context(chat_id, text, is_bot=False)
 
@@ -354,16 +379,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 intent = classify_intent(text)
                 entities = extract_entities(original_text)
                 sentiment = analyze_sentiment(text)
+                logger.info(
+                    f"Намерение: {intent}\nСущности: {entities}\nТональность: {sentiment}"
+                )
 
                 # Генерация ответа с учётом сущностей и тональности
                 response = generate_response(intent, entities, sentiment, original_text)
+                logger.info(f"Ответ бота: {response}")
 
                 get_context(chat_id, response, is_bot=True)
 
-                # Отправка ответа пользователю
-                await update.message.reply_text(response)
-            else:
-                logger.info("Пользователь не написал")
+                if is_voice:
+                    tts = gTTS(text=response, lang="ru")
+                    voice_io = BytesIO()
+                    tts.write_to_fp(voice_io)
+                    voice_io.seek(0)
+                    await update.message.reply_voice(voice=voice_io)
+                else:
+                    # Отправка ответа пользователю
+                    await update.message.reply_text(response)
         except Exception as e:
             logger.error(f"Ошибка обработки сообщения {e}\n{traceback.format_exc()}")
             await update.message.reply_text(
@@ -384,10 +418,11 @@ def run_bot():
     application.add_handler(CommandHandler("start", start))
     # application.add_handler(CommandHandler("help", help_command))
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+        MessageHandler(
+            (filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message
+        )
     )
 
-    # Start the Bot
     application.run_polling()
 
 
