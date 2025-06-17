@@ -1,4 +1,4 @@
-from re import sub as re_sub, findall as re_findall
+from re import sub, search
 
 
 # def process_user_input(text):
@@ -21,16 +21,21 @@ def clean_text(text: str) -> str:
     text = text.lower()
 
     # Удаление спецсимволов и цифр
-    text = re_sub(r"[^а-яё\s]", "", text)
+    text = sub(r"[^а-яё\s]", "", text)
 
     return text
 
 
-def extract_price(text: str) -> int | None:
-    "Извлечение числовой цены"
-    prices = map(int, re_findall(r"(\d+)\s*(тыс|к|руб|р)?", text.lower()))
+def extract_price(text: str) -> dict:
+    "Извлечение цены"
+    price_match = search(r"(\d+[\s\d]*)\s*(руб|₽|р\.)", text)
+    return {"PRICE": price_match.group()} if price_match else {}
 
-    return min(prices) if prices else None
+
+def extract_size(text: str) -> dict:
+    "Извлечение размеров участка"
+    size_match = search(r"(\d+)\s*(соток|сотки|сотка|га|гектар)", text)
+    return {"SIZE": size_match.group()} if size_match else {}
 
 
 def sentiment_dict_load_and_parse(file_path: str) -> dict[str, float]:
