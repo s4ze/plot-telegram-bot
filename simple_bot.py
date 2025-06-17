@@ -14,6 +14,7 @@ from operations import (
     sentiment_dict_load_and_parse,
     extract_price,
     extract_size,
+    extract_tags,
 )
 
 from natasha import (
@@ -35,6 +36,7 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from spellchecker import SpellChecker  # pip install pyspellchecker
 from data.intents import intents
+from data.land_plots import land_plots
 from random import choice
 from collections import deque
 
@@ -97,9 +99,8 @@ def extract_entities(text: str) -> dict:
     entities.update(extract_price(text))
     entities.update(extract_size(text))
 
-    return entities
-    # return {k: v for k, v in entities.items()
-    #             if v not in ["Бот", "Пользователь"]}
+    # return entities
+    return {k: v for k, v in entities.items() if v not in ["Бот", "Пользователь"]}
 
 
 def analyze_sentiment(text: str) -> str:
@@ -141,7 +142,80 @@ def process_text(text: str) -> str:
     return lemmatize_text(text)
 
 
-def generate_response(intent: str, entities: dict, sentiment: str) -> str:
+def search_plots(entities: dict, tags: list) -> list:
+    "Поиск участков по извлеченным параметрам"
+    filtered = land_plots.copy()
+
+    # Фильтрация по локации
+    if "LOC" in entities:
+        location = entities["LOC"].lower()
+        filtered = [p for p in filtered if location in p["location"].lower()]
+
+    # Фильтрация по цене
+    if "PRICE" in entities:
+        price = entities["PRICE"]
+        filtered = [p for p in filtered if p["price_value"] <= price]
+
+    # Фильтрация по размеру
+    if "SIZE" in entities:
+        size = entities["SIZE"]
+        filtered = [p for p in filtered if p["size_value"] >= size]
+
+    # Фильтрация по тегам
+    if tags:
+        filtered = [p for p in filtered if any(tag in p["tags"] for tag in tags)]
+
+    return filtered
+
+
+def format_short_plot_info(plot: dict) -> str:
+    "Краткое описание участка для поисковой выдачи"
+    return f"""Участок #{plot['id']}\n\
+        📍 {plot['location']} | 📏 {plot['size']}\n\
+        💰 {plot['price']}\n\
+        🏷️ Теги: #{' #'.join(plot['tags'][:3])}\n"""
+
+
+def format_land_info(plot: dict) -> str:
+    "Описание участка"
+    return f"""Участок #{plot['id']}\n\
+        📍 {plot['location']} | {plot['size']}\n\
+        🌱 Почва: {plot['soil']}\n\
+        💵 Цена: {plot['price']}\n\
+        ✨ Особенности: {', '.join(plot['features'])}\n\
+        📝 {plot['description']}\n"""
+
+
+def generate_response(
+    intent: str, entities: dict, sentiment: str, user_text: str
+) -> str:
+    # Извлечение тегов из запроса
+    tags = extract_tags(user_text)  # Новая функция
+
+    # Обработка поискового запроса
+    if any(["поиск", "искать", "предложение", "сравнить"]) in entities:
+        found_plots = search_plots(entities, tags)
+
+        if not found_plots:
+            response = "По вашему запросу участков не найдено. Попробуйте изменить параметры поиска."
+        else:
+            # Форматируем первые 3 результата
+            plots_list = "\n".join([format_short_plot_info(p) for p in found_plots[:3]])
+            response = f"🔍 Найдено участков: {len(found_plots)}\n\n{plots_list}\n"
+            response += "Для детальной информации укажите ID участка (например: 'Покажи участок 7')"
+
+        return adapt_to_sentiment(response, sentiment)
+
+    # Обработка запроса деталей участка
+    if intent == "plot_details" or "участок" in user_text.lower():
+        plot_ids = [int(word) for word in user_text.split() if word.isdigit()]
+        if plot_ids:
+            plot_id = plot_ids[0]
+            plot = next((p for p in land_plots if p["id"] == plot_id), None)
+            if plot:
+                return format_land_info(plot)
+            return "Участок с таким ID не найден. Проверьте номер."
+
     # 1. Выбираем базовый ответ по намерению
     if intent in intents:
         response = choice(intents[intent])
@@ -156,7 +230,7 @@ def generate_response(intent: str, entities: dict, sentiment: str) -> str:
 
 
 def personalize_response(response: str, entities: dict) -> str:
-    """Персонализирует ответ, используя извлеченные сущности"""
+    "Персонализирует ответ, используя извлеченные сущности"
     # Если есть имя - обращаемся по имени
     if "PER" in entities:
         name = entities["PER"]
@@ -268,6 +342,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if text and chat_id:
                 logger.info(f"Пользователь написал: {text}")
 
+                original_text = text
+
                 # Получаем контекст диалога
                 text = get_context(chat_id, text, is_bot=False)
 
@@ -276,11 +352,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # Анализ
                 intent = classify_intent(text)
-                entities = extract_entities(text)
+                entities = extract_entities(original_text)
                 sentiment = analyze_sentiment(text)
 
                 # Генерация ответа с учётом сущностей и тональности
-                response = generate_response(intent, entities, sentiment)
+                response = generate_response(intent, entities, sentiment, original_text)
 
                 get_context(chat_id, response, is_bot=True)
 

@@ -38,6 +38,32 @@ def extract_size(text: str) -> dict:
     return {"SIZE": size_match.group()} if size_match else {}
 
 
+def extract_tags(text: str) -> list:
+    """Извлечение тегов из текста (ключевых слов)"""
+    keywords = [
+        "лес",
+        "река",
+        "озеро",
+        "море",
+        "гора",
+        "город",
+        "село",
+        "ижс",
+        "коммерция",
+        "дача",
+        "вода",
+        "газ",
+        "электричество",
+        "песок",
+        "глина",
+    ]
+    found = []
+    for word in text.lower().split():
+        if word in keywords:
+            found.append(word)
+    return found
+
+
 def sentiment_dict_load_and_parse(file_path: str) -> dict[str, float]:
     "Загрузка тонального словаря"
     tonal_dict = {}
