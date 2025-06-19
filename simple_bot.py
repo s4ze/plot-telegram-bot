@@ -7,7 +7,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes,
+    `Context`Types,
 )
 from operations import (
     clean_text,
@@ -90,6 +90,10 @@ def lemmatize_text(text: str) -> str:
 
 def extract_entities(text: str) -> dict:
     "Извлечение сущностей, данных из текста"
+    segmenter = Segmenter()
+    emb = NewsEmbedding()
+    morph_tagger = NewsMorphTagger(emb)
+    ner_tagger = NewsNERTagger(emb)
 
     doc = Doc(text)
     doc.segment(segmenter)
@@ -97,6 +101,7 @@ def extract_entities(text: str) -> dict:
     doc.tag_ner(ner_tagger)
 
     entities = {}
+
     if doc.spans:
         for span in doc.spans:
             entities[span.type] = span.text
@@ -220,22 +225,10 @@ def format_land_info(plot: dict) -> str:
 
 
 def generate_response(
-    intent: str, entities: dict, sentiment: str, user_text: str, chat_id: int
+    intent: str, entities: dict, sentiment: str, user_text: str
 ) -> str:
-    # Проверяем состояние диалога
-    current_state = dialog_state.get(chat_id)
-
-    # Если в состоянии ожидания параметров - принудительно обрабатываем как фильтрацию
-    if current_state == "awaiting_filter_params":
-        dialog_state[chat_id] = None  # Сбрасываем состояние после использования
-        intent = "фильтрация"  # Принудительно устанавливаем намерение
-
     # Обработка поиска/фильтрации
     if intent in ["фильтрация", "поиск", "искать", "фильтр"]:
-        # Если не хватает параметров - запрашиваем и устанавливаем состояние
-        if not entities and not extract_tags(user_text):
-            dialog_state[chat_id] = "awaiting_filter_params"
-            return "Пожалуйста, укажите параметры для поиска: размер участка, бюджет или местоположение"
         found_plots = search_plots(entities, extract_tags(user_text))
 
         if found_plots:
@@ -315,17 +308,6 @@ def adapt_to_sentiment(response: str, sentiment: str) -> str:
     return response
 
 
-def get_context(chat_id: int, new_message: str, is_bot: bool = False) -> str:
-    "Возвращает контекст чата (последние 5 пар сообщений)"
-    if chat_id not in chat_contexts:
-        chat_contexts[chat_id] = deque(maxlen=10)
-
-    role = "Бот" if is_bot else "Пользователь"
-
-    chat_contexts[chat_id].append(f"[{role}]: {new_message}")
-    return " ".join(chat_contexts[chat_id])
-
-
 # ===================
 # ===================
 
@@ -350,13 +332,11 @@ except FileNotFoundError as e:
 # Загрузка инструментов для лексиммизации и извлечения сущностей (NER)
 
 emb = NewsEmbedding()
-morph_vocab = MorphVocab()
-# morph_tagger = NewsMorphTagger
-
 segmenter = Segmenter()
 morph_tagger = NewsMorphTagger(emb)
-
 ner_tagger = NewsNERTagger(emb)
+
+morph_vocab = MorphVocab()
 
 # Загрузка базы стоп-слов в русском языке
 stop_words = set(stopwords.words("russian"))
@@ -364,9 +344,6 @@ stop_words = set(stopwords.words("russian"))
 # Загрузка словаря тональности
 sentiment_dict = sentiment_dict_load_and_parse("./data/sentiment_dict.txt")
 
-# Создание переменной контекста чатов
-chat_contexts = {}
-dialog_state = {}
 
 # ===================
 # ===================
@@ -376,10 +353,7 @@ dialog_state = {}
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.effective_chat:
         chat_id = update.effective_chat.id
-        if chat_id in chat_contexts:
-            chat_contexts[chat_id].clear()
-        if chat_id in dialog_state:
-            dialog_state.pop(chat_id)
+
         await update.message.reply_text("Привет! Я ваш чат-бот. Задайте вопрос.")
 
 
@@ -409,27 +383,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id = update.effective_chat.id
             logger.info(f"Пользователь написал: {text}")
 
-            original_text = text
-
-            if text and original_text:
-                text = get_context(chat_id, text, is_bot=False)
-
+            if text:
                 text = process_text(text)
-                original_text = process_text(text)
 
-                intent = classify_intent(original_text)
-                entities = extract_entities(original_text)
-                sentiment = analyze_sentiment(original_text)
+                intent = classify_intent(text)
+                entities = extract_entities(text)
+                sentiment = analyze_sentiment(text)
                 logger.info(
                     f"\nНамерение: {intent}\nСущности: {entities}\nТональность: {sentiment}"
                 )
 
-                response = generate_response(
-                    intent, entities, sentiment, original_text, chat_id
-                )
+                response = generate_response(intent, entities, sentiment, text)
                 logger.info(f"Ответ бота: {response}")
-
-                get_context(chat_id, response, is_bot=True)
 
                 if is_voice:
                     tts = gTTS(text=response, lang="ru")
