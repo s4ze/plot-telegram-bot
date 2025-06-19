@@ -4,6 +4,8 @@ from joblib import dump
 from os import path
 import shutil
 
+models_dir = "./data/intents_model"
+
 
 def dataset_load_and_parse(file_path) -> list[tuple[str, str]]:
     "Загрузка датасета для обучения"
@@ -23,6 +25,10 @@ def dataset_load_and_parse(file_path) -> list[tuple[str, str]]:
     return data
 
 
+if not path.exists(models_dir):
+    print(f"{models_dir} directory doesn't exist")
+    exit(1)
+
 dataset_path = "./data/intents_dataset.txt"
 data = dataset_load_and_parse(dataset_path)
 
@@ -36,7 +42,6 @@ classifier = LinearSVC()
 classifier.fit(X_vec, y)
 
 # Сохранение модели
-models_dir = "./data/intents_model"
 
 classifier_file_name = "intent_classifier.pkl"
 vectorizer_file_name = "vectorizer.pkl"

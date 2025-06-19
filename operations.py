@@ -28,20 +28,28 @@ def clean_text(text: str) -> str:
 
 def extract_price(text: str) -> dict:
     "Извлечение цены"
-    price_match = search(r"(\d+[\s\d]*)\s*(руб|₽|р\.)", text)
-    return {"PRICE": price_match.group()} if price_match else {}
+    price_match = search(r"(\d+[\s\d]*)\s*(тыс|руб|₽|р\.)", text)
+    if price_match:
+        price = int(price_match.group(1).replace(" ", ""))
+        if "тыс" in text:
+            price *= 1000
+        return {"PRICE": price}
+    return {}
 
 
 def extract_size(text: str) -> dict:
     "Извлечение размеров участка"
     size_match = search(r"(\d+)\s*(соток|сотки|сотка|га|гектар)", text)
-    return {"SIZE": size_match.group()} if size_match else {}
+    if size_match:
+        return {"PRICE": int(size_match.group(1).replace(" ", ""))}
+    return {}
 
 
 def extract_tags(text: str) -> list:
     """Извлечение тегов из текста (ключевых слов)"""
     keywords = [
-        "лес",
+        "солнечный",
+        "речка" "лесной" "лес",
         "река",
         "озеро",
         "море",
@@ -75,9 +83,3 @@ def sentiment_dict_load_and_parse(file_path: str) -> dict[str, float]:
     except FileNotFoundError:
         print(f"Файл {file_path} не найден")
     return tonal_dict
-
-
-text = "Привт я изз москыв довай купимм зимлю рядом"
-print(f"Исходный: {text}")
-text = clean_text(text)
-print(f"Очищенный от лишних символов: {text}")
