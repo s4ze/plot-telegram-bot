@@ -7,7 +7,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     filters,
-    `Context`Types,
+    ContextTypes,
 )
 from operations import (
     clean_text,
@@ -90,10 +90,6 @@ def lemmatize_text(text: str) -> str:
 
 def extract_entities(text: str) -> dict:
     "Извлечение сущностей, данных из текста"
-    segmenter = Segmenter()
-    emb = NewsEmbedding()
-    morph_tagger = NewsMorphTagger(emb)
-    ner_tagger = NewsNERTagger(emb)
 
     doc = Doc(text)
     doc.segment(segmenter)
@@ -351,15 +347,13 @@ sentiment_dict = sentiment_dict_load_and_parse("./data/sentiment_dict.txt")
 
 # Обработчик команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.effective_chat:
-        chat_id = update.effective_chat.id
-
+    if update.message:
         await update.message.reply_text("Привет! Я ваш чат-бот. Задайте вопрос.")
 
 
 # Обработчик текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.effective_chat:
+    if update.message:
         try:
             is_voice = False
 
@@ -380,14 +374,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 text = update.message.text
 
-            chat_id = update.effective_chat.id
             logger.info(f"Пользователь написал: {text}")
 
             if text:
+                entities = extract_entities(text)
+
                 text = process_text(text)
 
                 intent = classify_intent(text)
-                entities = extract_entities(text)
                 sentiment = analyze_sentiment(text)
                 logger.info(
                     f"\nНамерение: {intent}\nСущности: {entities}\nТональность: {sentiment}"
