@@ -34,7 +34,7 @@ import traceback
 import logging
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-from spellchecker import SpellChecker  # pip install pyspellchecker
+from spellchecker import SpellChecker
 from data.intents_answers import intents
 from data.land_plots import land_plots
 from data.advertisements import advertisements
@@ -106,7 +106,6 @@ def extract_entities(text: str) -> dict:
     entities.update(extract_size(text))
 
     return entities
-    # return {k: v for k, v in entities.items() if v not in ["Бот", "Пользователь"]}
 
 
 def analyze_sentiment(text: str) -> str:
