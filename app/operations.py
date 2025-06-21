@@ -21,7 +21,7 @@ def clean_text(text: str) -> str:
     text = text.lower()
 
     # Удаление спецсимволов и цифр
-    text = sub(r"[^а-яё\s]", "", text)
+    text = sub(r"[^а-яё0-9\s]", "", text)
 
     return text
 

@@ -9,7 +9,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from operations import (
+from app.operations import (
     clean_text,
     sentiment_dict_load_and_parse,
     extract_price,
@@ -29,7 +29,7 @@ from os import path, remove
 from joblib import load
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
-from train_intents import models_dir, vectorizer_file_name, classifier_file_name
+from app.train_intents import models_dir, vectorizer_file_name, classifier_file_name
 import traceback
 import logging
 from nltk.corpus import stopwords
